@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Saved Deals • AffiliFind</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Saved deals</h1>
+        <p class="muted">Every product where you applied a deal will appear here.</p>
+      </div>
+      <button id="refresh">Refresh</button>
+    </header>
+
+    <section id="empty" class="empty hidden">
+      <p>No deals tracked yet. Use the extension to apply a deal and it will show up here.</p>
+    </section>
+
+    <section id="deals" class="grid"></section>
+  </main>
+
+  <template id="deal-card-template">
+    <article class="deal-card">
+      <img class="deal-thumb" alt="" />
+      <div class="deal-info">
+        <h2 class="deal-title"></h2>
+        <div class="deal-meta"></div>
+        <div class="deal-badge"></div>
+        <div class="deal-time muted"></div>
+      </div>
+      <div class="deal-actions">
+        <a class="secondary" target="_blank" rel="noopener">Product page</a>
+        <a class="primary" target="_blank" rel="noopener">Open deal</a>
+      </div>
+    </article>
+  </template>
+
+  <script src="view-deals.js"></script>
+</body>
+</html>

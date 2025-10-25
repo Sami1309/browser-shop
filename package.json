@@ -1,0 +1,22 @@
+{
+  "name": "affilifind-extension",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev:api": "node mock-api/server.js",
+    "zip": "node build/zip.mjs",
+    "start:firefox": "web-ext run --source-dir ./extension",
+    "build:firefox": "web-ext build --source-dir ./extension --artifacts-dir ./dist"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.67.0",
+    "archiver": "^7.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.19.2",
+    "web-ext": "^8.0.0"
+  },
+  "dependencies": {
+    "openai": "^6.7.0"
+  }
+}

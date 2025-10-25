@@ -1,0 +1,85 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>AffiliFind</title>
+  <link rel="stylesheet" href="popup.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+  <main>
+    <header>
+      <h1>AffiliFind</h1>
+      <div class="small">Affiliate deals & alternatives</div>
+    </header>
+
+    <section id="actions" class="card actions">
+      <button id="viewDeals" class="secondary" type="button">View deals</button>
+      <button id="searchSimilar" class="primary" type="button">Search for similar products</button>
+    </section>
+
+    <section id="current">
+      <h2>Current product</h2>
+      <div id="current-body" class="card"></div>
+    </section>
+
+    <section id="suggestions" class="card suggestions hidden" aria-live="polite">
+      <div class="suggestions-header">
+        <h2>Suggested alternatives</h2>
+        <span class="small muted" id="suggestions-status"></span>
+      </div>
+      <div id="suggestions-body" class="suggestions-body"></div>
+    </section>
+
+    <section id="similar">
+      <h2>Similar products with deals</h2>
+      <div id="similar-list" class="grid"></div>
+    </section>
+
+    <section id="settings" class="collapsible">
+      <button id="settingsToggle" class="collapsible-toggle" type="button" aria-expanded="false">
+        <div>
+          <h2>Settings</h2>
+          <div class="small muted">Affiliate API & widget options</div>
+        </div>
+        <span class="chevron" aria-hidden="true"></span>
+      </button>
+      <div id="settingsPanel" class="card collapsible-panel hidden">
+        <div class="row">
+          <label>
+            <input type="checkbox" id="autoInject" />
+            Show on-page deal widget automatically
+          </label>
+        </div>
+        <div class="row">
+          <label>Affiliate API base URL</label>
+          <input id="apiBase" type="url" placeholder="https://your-affiliate-api.example.com" />
+        </div>
+        <div class="row">
+          <label>API key (optional)</label>
+          <input id="apiKey" type="password" placeholder="sk_..." />
+        </div>
+        <button id="save">Save</button>
+        <span id="saved" class="small muted" aria-live="polite"></span>
+      </div>
+    </section>
+  </main>
+
+  <div id="dealsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="dealsModalTitle" aria-hidden="true">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-panel">
+      <header class="modal-header">
+        <div>
+          <h2 id="dealsModalTitle">Your deals</h2>
+          <div class="small muted" id="dealsModalSubtitle">Every product you've applied a deal on.</div>
+        </div>
+        <button id="closeDeals" class="secondary" type="button">Close</button>
+      </header>
+      <div id="dealsTotals" class="modal-totals card"></div>
+      <div id="dealsList" class="modal-list" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

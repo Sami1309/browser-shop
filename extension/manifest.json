@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "AffiliFind — Affiliate Deals on Product Pages",
+  "version": "0.1.0",
+  "description": "Shows affiliate discounts on product pages and suggests similar products with deals.",
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "AffiliFind"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": ["storage", "tabs", "scripting"],
+  "host_permissions": [
+    "*://*/*",
+    "http://localhost:8787/*",
+    "https://your-affiliate-api.example.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["*://*/*"],
+      "js": ["content/content.js"],
+      "css": ["content/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["content/*.css", "assets/*"],
+      "matches": ["*://*/*"]
+    }
+  ],
+  "icons": {
+    "32": "assets/icon32.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  }
+}

@@ -204,7 +204,7 @@ async function fetchRemoteProductIntel(payload = {}) {
 async function searchProductSuggestions(payload = {}) {
   const query = payload?.query?.trim();
   if (!query) throw new Error('query is required for search suggestions');
-  const cacheKey = `${query.toLowerCase()}::${payload?.context || ''}::${payload?.product?.url || ''}`;
+  const cacheKey = `${query.toLowerCase()}::${payload?.context || ''}::${payload?.product?.url || payload?.productUrl || ''}`;
   if (mem.searchCache.has(cacheKey)) return mem.searchCache.get(cacheKey);
 
   const { apiBase, apiKey } = await getConfig();
@@ -313,8 +313,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         query,
         context: msg?.product?.brand || '',
         product: msg?.product || null,
-        domSnippet: msg?.domSnippet || null,
-        selectorHints: msg?.selectorHints || null
+        productUrl: msg?.productUrl || msg?.product?.url || null,
+        snippets: Array.isArray(msg?.snippets) ? msg.snippets.slice(0, 4) : []
       }).catch(e => ({ error: e.message }));
       sendResponse(result);
       return;

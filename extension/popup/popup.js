@@ -30,6 +30,17 @@ const normalizeUrl = (url) => {
   }
 };
 
+const thumbnailForUrl = (url, provided) => {
+  if (provided) return provided;
+  if (!url) return 'https://www.google.com/s2/favicons?sz=64&domain_url=example.com';
+  try {
+    const u = new URL(url);
+    return `https://www.google.com/s2/favicons?sz=64&domain_url=${encodeURIComponent(u.origin)}`;
+  } catch {
+    return 'https://www.google.com/s2/favicons?sz=64&domain_url=example.com';
+  }
+};
+
 function productsMatch(recordProduct = {}, currentProduct = {}) {
   if (!recordProduct || !currentProduct) return false;
   const urlA = normalizeUrl(recordProduct.url);
@@ -296,7 +307,7 @@ function setSuggestionsState({ status = '', loading = false, items = null } = {}
     body.innerHTML = '';
     items.slice(0, 3).forEach((item) => {
       const safeUrl = item.url || '';
-      const safeImage = item.image || 'https://via.placeholder.com/48';
+      const safeImage = thumbnailForUrl(safeUrl, item.image);
       const safeSummary = item.summary || 'No summary available yet.';
       body.append(el(`
         <div class="suggestion-card">
@@ -332,14 +343,19 @@ async function handleSearchSuggestions(btn) {
     return;
   }
   btn.disabled = true;
-  setSuggestionsState({ loading: true, status: '' });
+  setSuggestionsState({ loading: true, status: 'Searching with Grok…' });
   const context = await collectPageContext().catch(() => ({}));
+  const mergedProduct = {
+    ...(state.product || {}),
+    ...(context?.product || {})
+  };
+  if (!mergedProduct.url && state.product?.url) mergedProduct.url = state.product.url;
   const res = await chrome.runtime.sendMessage({
     type: 'SEARCH_PRODUCT_SUGGESTIONS',
-    product: context?.product || state.product,
+    product: mergedProduct,
+    productUrl: mergedProduct.url || state.product?.url || null,
     query: baseQuery,
-    domSnippet: context?.domSnippet || null,
-    selectorHints: context?.selectors || null
+    snippets: Array.isArray(context?.snippets) ? context.snippets.slice(0, 4) : []
   }).catch(() => null);
   btn.disabled = false;
   if (!res || res.error) {
@@ -347,7 +363,7 @@ async function handleSearchSuggestions(btn) {
     return;
   }
   const items = Array.isArray(res.items) ? res.items.slice(0, 3) : [];
-  setSuggestionsState({ items, status: items.length ? '' : 'No suggestions returned.' });
+  setSuggestionsState({ items, status: items.length ? 'Powered by Grok search' : 'No suggestions returned.' });
 }
 
 async function collectPageContext() {

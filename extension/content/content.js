@@ -75,6 +75,18 @@
     ]
   };
 
+  const SNIPPET_SELECTORS = [
+    '#feature-bullets li',
+    '#poExpander li',
+    '.a-unordered-list.a-vertical li',
+    "[data-feature-name='productOverview'] li",
+    "[data-feature-name='productDetails'] li",
+    '.product-overview li',
+    '.productHighlights li',
+    '.productFacts li',
+    '.a-list-item'
+  ];
+
   function debounce(fn, wait = 400) {
     let t;
     return (...args) => {
@@ -331,12 +343,27 @@
     return STATE.remotePromise;
   }
 
-  function serializeSelectorHints() {
-    return Object.keys({ ...BASE_SELECTORS, ...STATE.learnedSelectors }).reduce((acc, field) => {
-      const selectors = combineSelectors(field);
-      if (selectors.length) acc[field] = selectors;
-      return acc;
-    }, {});
+  function collectTextSnippets(limit = 4) {
+    const snippets = [];
+    const seen = new Set();
+    for (const selector of SNIPPET_SELECTORS) {
+      if (snippets.length >= limit) break;
+      let nodes = [];
+      try {
+        nodes = Array.from(document.querySelectorAll(selector));
+      } catch {
+        continue;
+      }
+      for (const node of nodes) {
+        if (snippets.length >= limit) break;
+        const text = node.textContent?.replace(/\s+/g, ' ').trim();
+        if (!text || text.length < 5) continue;
+        if (seen.has(text)) continue;
+        snippets.push(text.length > 240 ? `${text.slice(0, 237)}...` : text);
+        seen.add(text);
+      }
+    }
+    return snippets.slice(0, limit);
   }
 
   async function detectProduct() {
@@ -551,11 +578,10 @@
     }
     if (msg?.type === 'AFFILIFIND_PAGE_CONTEXT') {
       const product = STATE.product || detectLocally() || null;
-      const selectors = serializeSelectorHints();
+      const snippets = collectTextSnippets(4);
       sendResponse?.({
         product,
-        domSnippet: snapshotDom(120000),
-        selectors: Object.keys(selectors).length ? selectors : null
+        snippets
       });
       return;
     }

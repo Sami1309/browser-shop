@@ -87,96 +87,75 @@ function sanitizeProduct(raw = {}, url) {
   return product;
 }
 
-const WEB_SEARCH_TOOL = {
-  type: 'function',
-  function: {
-    name: 'web_search',
-    description: 'Search the web for up-to-date product information and pricing.',
-    parameters: {
-      type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'Search query describing the product(s) to research.'
-        },
-        num_results: {
-          type: 'integer',
-          description: 'Approximate number of search results to retrieve (1-10).',
-          minimum: 1,
-          maximum: 10
-        }
-      },
-      required: ['query']
-    }
+function normalizeHttpsUrl(value) {
+  if (!value) return '';
+  try {
+    const raw = value.trim();
+    const needsScheme = !/^https?:/i.test(raw);
+    const candidate = needsScheme ? `https://${raw.replace(/^\/+/, '')}` : raw;
+    const url = new URL(candidate);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+    if (url.protocol === 'http:') url.protocol = 'https:';
+    return url.toString();
+  } catch {
+    return '';
   }
-};
+}
 
-async function performWebSearch(query, numResults = 6) {
-  const cleanedQuery = (query || '').trim();
-  if (!cleanedQuery) return [];
-  const limit = Math.max(1, Math.min(Number(numResults) || 6, 10));
-  const url = new URL('https://api.duckduckgo.com/');
-  url.searchParams.set('q', cleanedQuery);
-  url.searchParams.set('format', 'json');
-  url.searchParams.set('no_html', '1');
-  url.searchParams.set('skip_disambig', '1');
-  url.searchParams.set('t', 'affilifind-extension');
-
-  console.log(`[web-search] query="${cleanedQuery}" limit=${limit}`);
-  const resp = await fetch(url, { headers: { 'User-Agent': 'AffiliFind/1.0 (+https://example.com)' } });
-  if (!resp.ok) {
-    console.warn('[web-search] duckduckgo response not ok', resp.status);
-    return [];
+function faviconFromUrl(url) {
+  if (!url) return 'https://www.google.com/s2/favicons?sz=64&domain_url=example.com';
+  try {
+    const u = new URL(url);
+    return `https://www.google.com/s2/favicons?sz=64&domain_url=${encodeURIComponent(u.origin)}`;
+  } catch {
+    return 'https://www.google.com/s2/favicons?sz=64&domain_url=example.com';
   }
-  const payload = await resp.json();
-  const results = [];
+}
 
-  function pushResult(item) {
-    if (!item || results.length >= limit) return;
-    if (!item.title || !item.url) return;
-    results.push({
-      title: item.title,
-      url: item.url,
-      snippet: item.snippet || '',
-      image: item.image || ''
-    });
+function sanitizeSuggestionItems(items, query, fallbacks = []) {
+  return items
+    .map((item, idx) => {
+      const fallback = fallbacks[idx] || fallbacks.find((res) => {
+        if (!item?.title || !res?.title) return false;
+        return res.title.slice(0, 32).toLowerCase().includes(item.title.slice(0, 24).toLowerCase());
+      }) || null;
+
+      const url = normalizeHttpsUrl(item?.url) || normalizeHttpsUrl(fallback?.url);
+      if (!url) return null;
+
+      const image = item?.image || fallback?.image || faviconFromUrl(url);
+      const summary = item?.summary || fallback?.snippet || '';
+      const priceRange = item?.priceRange || item?.price || '';
+      const title = item?.title || fallback?.title || query;
+
+      return { title, summary, priceRange, url, image };
+    })
+    .filter(Boolean);
+}
+
+function buildWebPluginConfig() {
+  const plugin = { id: 'web' };
+  const engine = (process.env.OPENROUTER_WEB_ENGINE || '').trim();
+  if (engine) plugin.engine = engine;
+  const maxResultsRaw = Number(process.env.OPENROUTER_WEB_MAX_RESULTS);
+  if (Number.isFinite(maxResultsRaw) && maxResultsRaw > 0) {
+    plugin.max_results = Math.max(1, Math.min(10, Math.round(maxResultsRaw)));
   }
+  const customPrompt = process.env.OPENROUTER_WEB_PROMPT;
+  if (customPrompt) plugin.search_prompt = customPrompt;
+  return plugin;
+}
 
-  (payload.Results || []).forEach((result) => {
-    pushResult({
-      title: result.Text,
-      url: result.FirstURL,
-      snippet: result.Text,
-      image: result.Icon?.URL || ''
-    });
-  });
-
-  function harvestTopics(topics) {
-    if (!Array.isArray(topics)) return;
-    for (const topic of topics) {
-      if (topic.Topics) {
-        harvestTopics(topic.Topics);
-        continue;
-      }
-      if (topic.Text && topic.FirstURL) {
-        pushResult({
-          title: topic.Text,
-          url: topic.FirstURL,
-          snippet: topic.Text,
-          image: topic.Icon?.URL || ''
-        });
-      }
-      if (results.length >= limit) break;
-    }
-  }
-
-  harvestTopics(payload.RelatedTopics);
-
-  if (!results.length && payload.AbstractText && payload.AbstractURL) {
-    pushResult({ title: payload.AbstractText.slice(0, 80), url: payload.AbstractURL, snippet: payload.AbstractText });
-  }
-
-  return results.slice(0, limit);
+function extractCitationFallbacks(annotations = []) {
+  if (!Array.isArray(annotations)) return [];
+  return annotations
+    .map((annotation) => annotation?.url_citation)
+    .filter(Boolean)
+    .map((citation) => ({
+      title: citation.title || citation.url || '',
+      url: citation.url || '',
+      snippet: citation.content || ''
+    }));
 }
 
 function extractAssistantText(message) {
@@ -269,37 +248,38 @@ async function analyzeDomWithLLM({ url, dom, missingFields = [] }) {
   };
 }
 
-async function fetchSearchSuggestions({ query, context, product, domSnippet, selectorHints }) {
+async function fetchSearchSuggestions({ query, context, product, snippets = [], productUrl }) {
   if (!openrouter) {
     throw new Error('OpenRouter API key not configured; cannot perform Grok search');
   }
   const cleanedQuery = (query || '').trim();
   if (!cleanedQuery) throw new Error('query is required');
 
-  const domSnippetClean = typeof domSnippet === 'string'
-    ? (domSnippet.length > 32000
-      ? `${domSnippet.slice(0, 15000)}\n<!-- DOM TRIMMED -->\n${domSnippet.slice(-8000)}`
-      : domSnippet)
-    : '';
-
   const productJson = product ? JSON.stringify(product).slice(0, 4000) : '';
-  const selectorJson = selectorHints ? JSON.stringify(selectorHints).slice(0, 2000) : '';
+  const canonicalProductUrl = (productUrl || product?.url || '').trim();
+  const priceLabel = Number(product?.price)
+    ? `${product.price} ${product?.currency || ''}`.trim()
+    : '';
+  // const formattedSnippets = Array.isArray(snippets)
+  //   ? snippets.slice(0, 4).map((text, idx) => `Snippet ${idx + 1}: ${text}`).join('\n')
+  //   : '';
 
   const systemPrompt = [
     'You are a lightning-fast shopping research co-pilot.',
     'Return strict minified JSON of shape {"items":[{"title":"","summary":"","priceRange":"","url":"","image":""}]}.',
-    'Use any provided DOM snippet and product metadata to anchor the exact item we need alternatives for.',
-    'Summaries must mention the standout feature + merchant or brand; include price ranges when available.',
-    'Every item must include an https URL and an image (thumbnail) URL. Prefer images surfaced via search results or the DOM snippet.',
+    'Use the provided product metadata and textual context snippets to anchor the exact item we need alternatives for.',
+    'Summaries must be no longer than a short sentence; include price ranges when available.',
+    'Every item must include an https URL and an image (thumbnail) URL sourced from the web search output. Do not invent links.',
     'Never include prose outside JSON.'
   ].join(' ');
 
   const userPrompt = [
     `Find up to 3 compelling alternatives for: ${cleanedQuery}.`,
     context ? `Context: ${context}.` : null,
+    canonicalProductUrl ? `Current product URL: ${canonicalProductUrl}` : null,
+    priceLabel ? `Observed price: ${priceLabel}` : null,
     productJson ? `Known product metadata: ${productJson}` : null,
-    selectorJson ? `Selectors that surfaced useful data: ${selectorJson}` : null,
-    domSnippetClean ? `DOM_SNIPPET_START\n${domSnippetClean}\nDOM_SNIPPET_END` : null,
+    // formattedSnippets ? `Supporting details:\n${formattedSnippets}` : null,
     'Prefer options that are in stock and have clear buying links. JSON only.'
   ].filter(Boolean).join('\n');
 
@@ -308,72 +288,40 @@ async function fetchSearchSuggestions({ query, context, product, domSnippet, sel
     { role: 'user', content: userPrompt }
   ];
 
-  let turns = 0;
-  while (turns < 4) {
-    turns += 1;
-    console.log(`[grok-search] turn=${turns} query="${cleanedQuery}"`);
-    const response = await openrouter.chat.completions.create({
-      model: grokModel,
-      messages,
-      tools: [WEB_SEARCH_TOOL],
-      tool_choice: 'auto',
-      temperature: 0.2,
-      max_tokens: 800
-    });
-    const choice = response?.choices?.[0];
-    if (!choice || !choice.message) {
-      throw new Error('No response returned from Grok');
-    }
+  const plugin = buildWebPluginConfig();
+  const requestPayload = {
+    model: grokModel,
+    messages,
+    temperature: 0.2,
+    max_tokens: 800,
+    plugins: [plugin]
+  };
 
-    const message = choice.message;
-    if (Array.isArray(message.tool_calls) && message.tool_calls.length) {
-      messages.push({
-        role: 'assistant',
-        content: message.content || '',
-        tool_calls: message.tool_calls
-      });
-
-      for (const call of message.tool_calls) {
-        const fn = call.function?.name;
-        if (fn !== 'web_search') continue;
-        let args;
-        try {
-          args = JSON.parse(call.function?.arguments || '{}');
-        } catch (err) {
-          console.warn('[grok-search] failed to parse tool args', err);
-          args = {};
-        }
-        const results = await performWebSearch(args.query || cleanedQuery, args.num_results || 6);
-        messages.push({
-          role: 'tool',
-          tool_call_id: call.id,
-          content: JSON.stringify({ results })
-        });
-      }
-      continue;
-    }
-
-    const textContent = extractAssistantText(message).trim();
-    if (!textContent) throw new Error('No text content returned from Grok search');
-    const cleaned = textContent.replace(/^```json\s*/i, '').replace(/```$/i, '');
-    let parsed;
-    try {
-      parsed = JSON.parse(cleaned);
-    } catch (err) {
-      console.error('[mock-api] Failed to parse Grok search response', cleaned);
-      throw new Error('Search suggestions JSON malformed');
-    }
-    const items = Array.isArray(parsed.items) ? parsed.items.slice(0, 3) : [];
-    return items.map((item) => ({
-      title: item.title || item.name || cleanedQuery,
-      summary: item.summary || item.description || '',
-      priceRange: item.priceRange || item.price || '',
-      url: item.url || '',
-      image: item.image || ''
-    }));
+  const searchContextSize = (process.env.OPENROUTER_WEB_SEARCH_CONTEXT || '').toLowerCase();
+  if (['low', 'medium', 'high'].includes(searchContextSize)) {
+    requestPayload.web_search_options = { search_context_size: searchContextSize };
   }
 
-  throw new Error('Grok did not produce a final answer');
+  const response = await openrouter.chat.completions.create(requestPayload);
+  const choice = response?.choices?.[0];
+  if (!choice || !choice.message) {
+    throw new Error('No response returned from Grok');
+  }
+
+  const message = choice.message;
+  const textContent = extractAssistantText(message).trim();
+  if (!textContent) throw new Error('No text content returned from Grok search');
+  const cleaned = textContent.replace(/^```json\s*/i, '').replace(/```$/i, '');
+  let parsed;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (err) {
+    console.error('[mock-api] Failed to parse Grok search response', cleaned);
+    throw new Error('Search suggestions JSON malformed');
+  }
+  const items = Array.isArray(parsed.items) ? parsed.items.slice(0, 3) : [];
+  const citationFallbacks = extractCitationFallbacks(message.annotations);
+  return sanitizeSuggestionItems(items, cleanedQuery, citationFallbacks);
 }
 
 app.post('/v1/product-intel', async (req, res) => {
@@ -408,13 +356,15 @@ app.post('/v1/product-intel', async (req, res) => {
 });
 
 app.post('/v1/search-suggestions', async (req, res) => {
-  const { query, context, product, domSnippet, selectorHints } = req.body || {};
+  const { query, context, product, snippets, productUrl } = req.body || {};
   if (!query) {
     return res.status(400).json({ error: 'query is required' });
   }
   try {
-    console.log(`[search-suggestions] query=${query} domBytes=${domSnippet ? domSnippet.length : 0}`);
-    const items = await fetchSearchSuggestions({ query, context, product, domSnippet, selectorHints });
+    const snippetCount = Array.isArray(snippets) ? snippets.length : 0;
+    console.log(`[search-suggestions] query=${query} snippets=${snippetCount} productUrl=${productUrl || product?.url || 'n/a'}`);
+    console.log("Snippets", snippets)
+    const items = await fetchSearchSuggestions({ query, context, product, snippets, productUrl });
     res.json({ items });
   } catch (err) {
     console.error('[mock-api] search-suggestions failure', err);
